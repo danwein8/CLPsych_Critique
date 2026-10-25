@@ -238,7 +238,7 @@ class VLLMBackend:
             gpu_memory_utilization=gpu_memory_utilization,
             max_model_len=max_model_len,
             trust_remote_code=trust_remote_code,
-            seed=seed,
+            seed=0 if seed is None else seed,
         )
         self.sampling_params = SamplingParams(
             temperature=temperature, top_p=top_p, max_tokens=max_tokens)
@@ -617,7 +617,7 @@ def add_common_args(parser, default_model: str, default_output: str,
     parser.add_argument("--temperature", type=float, default=default_temperature)
     parser.add_argument("--top_p", type=float, default=1.0)
     parser.add_argument("--max_tokens", type=int, default=600)
-    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--batch_size", type=int, default=default_batch_size)
     parser.add_argument("--limit", type=int, default=None,
                         help="Only the first N targets (posts for B, timelines "

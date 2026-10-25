@@ -40,6 +40,17 @@
 #   sbatch -N1 --gres=gpu:4 --wrap='bash pipelines/run_all_systems.sh'
 # =============================================================================
 set -euo pipefail
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
+export CUDA_VISIBLE_DEVICES=4,5,6,7
+export NCCL_P2P_DISABLE=1
+export VLLM_USE_FLASHINFER_SAMPLER=0
+for g in 4 5 6 7; do
+  used=$(nvidia-smi -i "$g" --query-gpu=memory.used --format=csv,noheader,nounits)
+  if [ "$used" -gt 1000 ]; then
+    echo "GPU $g already has ${used} MiB in use, not starting."
+    exit 1
+  fi
+done
 
 # ── Configuration (override via environment variables) ──────────────────────
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -47,7 +58,7 @@ PYTHON="${PYTHON:-python}"
 
 # Source data: directory of per-timeline shared-task JSON files
 # (the same directory you would pass to pipeline.py / prepare_data.py).
-DATA_DIR="${DATA_DIR:-/path/to/train-clpsych2025-v2}"
+DATA_DIR="${DATA_DIR:-/users/arozovskaya/dweiner/data/train-clpsych2025-v2}"
 
 # Output root (checkpoints + submissions + settings logs per system).
 OUT_DIR="${OUT_DIR:-$REPO_ROOT/outputs/cluster_run}"
@@ -57,16 +68,17 @@ OUT_DIR="${OUT_DIR:-$REPO_ROOT/outputs/cluster_run}"
 #   huggingface-cli download Qwen/Qwen2.5-32B-Instruct
 #   huggingface-cli download meta-llama/Meta-Llama-3-8B-Instruct
 #   huggingface-cli download meta-llama/Llama-3.3-70B-Instruct
-QWEN25_72B_PATH="${QWEN25_72B_PATH:-/path/to/Qwen2.5-72B-Instruct}"
-QWEN25_32B_PATH="${QWEN25_32B_PATH:-/path/to/Qwen2.5-32B-Instruct}"
-LLAMA3_8B_PATH="${LLAMA3_8B_PATH:-/path/to/Meta-Llama-3-8B-Instruct}"
-LLAMA33_70B_PATH="${LLAMA33_70B_PATH:-/path/to/Llama-3.3-70B-Instruct}"
+QWEN25_72B_PATH="${QWEN25_72B_PATH:-/users/arozovskaya/dweiner/models/Qwen2.5-72B-Instruct}"
+QWEN25_32B_PATH="${QWEN25_32B_PATH:-/users/arozovskaya/dweiner/models/Qwen2.5-32B-Instruct}"
+LLAMA3_8B_PATH="${LLAMA3_8B_PATH:-/users/arozovskaya/dweiner/models/Meta-Llama-3-8B-Instruct}"
+LLAMA33_70B_PATH="${LLAMA33_70B_PATH:-/users/arozovskaya/dweiner/models/Llama-3.3-70B-Instruct}"
 
 # If the GPUs cannot hold a bf16 70B/72B per card, quantize, e.g.:
 #   QUANTIZATION="fp8"   (H100)  or  QUANTIZATION="awq"  (with an AWQ checkpoint)
 QUANTIZATION="${QUANTIZATION:-}"
 
 TP="${TP:-4}"            # vLLM tensor parallelism (4 GPUs)
+MAX_LEN="${MAX_LEN:-32768}"    # Llama-3.3-70B defaults to 131072 which doesnt fit with the weights
 GPU_UTIL="${GPU_UTIL:-0.9}"
 BATCH="${BATCH:-16}"      # posts per generation batch (checkpoint saved after each)
 ISM_BATCH="${ISM_BATCH:-8}"   # ISM: n_rounds(10) generations per post
@@ -94,40 +106,40 @@ step() {
 }
 
 # ── 1. BULUSI (Task B, Qwen2.5-72B) ─────────────────────────────────────────
-step "BULUSI Task B — Qwen2.5-72B (5-shot: contriever top-50 -> ms-marco rerank -> top-5, LOTO)"
-"$PYTHON" "$REPO_ROOT/pipelines/bulusi_model.py" \
-    --data_dir "$DATA_DIR" --output_dir "$OUT_DIR/bulusi" \
-    --task b --backend vllm --model "$QWEN25_72B_PATH" \
-    --tensor_parallel_size "$TP" --gpu_memory_utilization "$GPU_UTIL" \
-    --batch_size "$BATCH" "${QUANT_FLAG[@]+"${QUANT_FLAG[@]}"}"
+#step "BULUSI Task B — Qwen2.5-72B (5-shot: contriever top-50 -> ms-marco rerank -> top-5, LOTO)"
+#"$PYTHON" "$REPO_ROOT/pipelines/bulusi_model.py" \
+#    --data_dir "$DATA_DIR" --output_dir "$OUT_DIR/bulusi" \
+#    --task b --backend vllm --model "$QWEN25_72B_PATH" \
+#    --tensor_parallel_size "$TP" --gpu_memory_utilization "$GPU_UTIL" \
+#    --batch_size "$BATCH" "${QUANT_FLAG[@]+"${QUANT_FLAG[@]}"}"
 
 # ── 2. Aquarius (Task B, Qwen2.5-32B) ────────────────────────────────────────
-step "Aquarius Task B — Qwen2.5-32B (one-shot, BGE-large-en-v1.5 retrieval, LOTO)"
-"$PYTHON" "$REPO_ROOT/pipelines/aquarius_model.py" \
-    --data_dir "$DATA_DIR" --output_dir "$OUT_DIR/aquarius" \
-    --task b --backend vllm --model "$QWEN25_32B_PATH" \
-    --tensor_parallel_size "$TP" --gpu_memory_utilization "$GPU_UTIL" \
-    --batch_size "$BATCH"
+#step "Aquarius Task B — Qwen2.5-32B (one-shot, BGE-large-en-v1.5 retrieval, LOTO)"
+#"$PYTHON" "$REPO_ROOT/pipelines/aquarius_model.py" \
+#    --data_dir "$DATA_DIR" --output_dir "$OUT_DIR/aquarius" \
+#    --task b --backend vllm --model "$QWEN25_32B_PATH" \
+#    --tensor_parallel_size "$TP" --gpu_memory_utilization "$GPU_UTIL" \
+#    --batch_size "$BATCH"
 
 # ── 3. ISM (Task B, Meta-Llama-3-8B) ────────────────────────────────────────
 # 10 candidates per post (temp 0.1) + Gaussian KDE (Scott) selection over
 # all-MiniLM-L6-v2 summary embeddings. TP=1 lets the 8B fit on one GPU — but
 # if you run the systems strictly sequentially, keep TP so this driver uses
 # the same 4-GPU layout.
-step "ISM Task B — Meta-Llama-3-8B (10 candidates + KDE selection, LOTO)"
-"$PYTHON" "$REPO_ROOT/pipelines/ism_model.py" \
-    --data_dir "$DATA_DIR" --output_dir "$OUT_DIR/ism" \
-    --task b --backend vllm --model "$LLAMA3_8B_PATH" \
-    --tensor_parallel_size "$TP" --gpu_memory_utilization "$GPU_UTIL" \
-    --batch_size "$ISM_BATCH"
+#step "ISM Task B — Meta-Llama-3-8B (10 candidates + KDE selection, LOTO)"
+#"$PYTHON" "$REPO_ROOT/pipelines/ism_model.py" \
+#    --data_dir "$DATA_DIR" --output_dir "$OUT_DIR/ism" \
+#    --task b --backend vllm --model "$LLAMA3_8B_PATH" \
+#    --tensor_parallel_size "$TP" --gpu_memory_utilization "$GPU_UTIL" \
+#    --batch_size "$ISM_BATCH"
 
 # ── 4. uOttawa (Task B, Llama-3.3-70B) ───────────────────────────────────────
-step "uOttawa Task B (S2 one-shot, their best submission) — Llama-3.3-70B"
-"$PYTHON" "$REPO_ROOT/pipelines/uottawa_model.py" \
-    --data_dir "$DATA_DIR" --output_dir "$OUT_DIR/uottawa" \
-    --task b --backend vllm --model "$LLAMA33_70B_PATH" --variant s2 \
-    --tensor_parallel_size "$TP" --gpu_memory_utilization "$GPU_UTIL" \
-    --batch_size "$BATCH" "${QUANT_FLAG[@]+"${QUANT_FLAG[@]}"}"
+#step "uOttawa Task B (S2 one-shot, their best submission) — Llama-3.3-70B"
+#"$PYTHON" "$REPO_ROOT/pipelines/uottawa_model.py" \
+#    --data_dir "$DATA_DIR" --output_dir "$OUT_DIR/uottawa" \
+#    --task b --backend vllm --model "$LLAMA33_70B_PATH" --variant s2 \
+#    --max_model_len "$MAX_LEN" --tensor_parallel_size "$TP" --gpu_memory_utilization "$GPU_UTIL" \
+#    --batch_size "$BATCH" "${QUANT_FLAG[@]+"${QUANT_FLAG[@]}"}"
 
 # The paper's other two official submissions (each ~1 extra Task B pass):
 # step "uOttawa Task B (S1 zero-shot)"
@@ -148,7 +160,7 @@ step "EAIonFlux Task B — Llama-3.3-70B (k=5, ICL)"
 "$PYTHON" "$REPO_ROOT/pipelines/eaionflux_model.py" \
     --data_dir "$DATA_DIR" --output_dir "$OUT_DIR/eaionflux" \
     --backend vllm --model "$LLAMA33_70B_PATH" --task B --k 5 \
-    --skip_zero_shot \
+    --max_model_len "$MAX_LEN" --skip_zero_shot \
     --tensor_parallel_size "$TP" --gpu_memory_utilization "$GPU_UTIL" \
     "${QUANT_FLAG[@]+"${QUANT_FLAG[@]}"}"
 

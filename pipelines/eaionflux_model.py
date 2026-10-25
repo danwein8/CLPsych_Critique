@@ -342,11 +342,33 @@ def build_timeline_representation(tl: Timeline) -> tuple[str, dict]:
 # ── Embedding + retrieval ─────────────────────────────────────────────────────
 
 def embed_texts(model_name: str, texts: list[str]) -> np.ndarray:
-    """Embed a list of texts with a sentence-transformers model (L2-normalized)."""
+    """Embed a list of texts with a sentence-transformers model (L2-normalized).
+
+    Runs on GPU in fp16 when there is room, then frees the GPU so vLLM can load
+    afterwards. Falls back to CPU if the GPU is already occupied (e.g. when an
+    LLM was loaded earlier in the same process).
+    """
+    import gc
+    import torch
     from sentence_transformers import SentenceTransformer
     print(f"Embedding {len(texts)} texts with {model_name} ...")
-    model = SentenceTransformer(model_name)
-    return model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
+    try:
+        model = SentenceTransformer(model_name, device="cuda",
+                                    model_kwargs={"torch_dtype": torch.float16})
+        vecs = model.encode(texts, normalize_embeddings=True,
+                            show_progress_bar=False, batch_size=8)
+    except torch.OutOfMemoryError:
+        print("  GPU full, embedding on CPU instead (slower).")
+        model = None
+        gc.collect(); torch.cuda.empty_cache()
+        model = SentenceTransformer(model_name, device="cpu")
+        vecs = model.encode(texts, normalize_embeddings=True,
+                            show_progress_bar=False, batch_size=8)
+    del model
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    return vecs
 
 
 def top_k_similar(query_vec, candidates: list, k: int) -> list[tuple]:
@@ -564,16 +586,21 @@ def make_generator(backend: str, model: str, host: str | None, temperature: floa
         return generate
 
     if backend == "vllm":
-        vllm_backend = VLLMBackend(
-            model, tensor_parallel_size=tensor_parallel_size, dtype=dtype,
-            quantization=quantization, gpu_memory_utilization=gpu_memory_utilization,
-            max_model_len=max_model_len, seed=seed,
-            temperature=temperature, max_tokens=max_tokens)
+        state = {}
 
         def generate(prompt: str) -> str:
+            # Load the LLM on first use, after retrieval embeddings are computed
+            # and the embedding model has released the GPU.
+            if "backend" not in state:
+                state["backend"] = VLLMBackend(
+                    model, tensor_parallel_size=tensor_parallel_size, dtype=dtype,
+                    quantization=quantization,
+                    gpu_memory_utilization=gpu_memory_utilization,
+                    max_model_len=max_model_len, seed=seed,
+                    temperature=temperature, max_tokens=max_tokens)
             msgs = [{"role": "system", "content": SYSTEM_MESSAGE},
                     {"role": "user", "content": prompt}]
-            return vllm_backend.generate([msgs])[0]
+            return state["backend"].generate([msgs])[0]
 
         return generate
 
