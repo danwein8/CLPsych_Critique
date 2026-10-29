@@ -66,10 +66,14 @@ NLI_MODEL_NAME = "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
 CONTRADICTION_IDX = 2
 BERTSCORE_MODEL_NAME = "microsoft/deberta-xlarge-mnli"
 
-# The repo's degenerate constant string (see PROJECT_CONTEXT.md §3.1).
+# The repo's Task B degenerate constant string — verbatim from
+# pipelines/make_degenerate_baselines.py / official_run/baseline_constant.json
+# (the run that scored CS 0.904 in results_dev_2026-05-18_13-33-31.csv).
+# NOTE: PROJECT_CONTEXT.md §3.1 quotes a different (21-word) string — that
+# quote is wrong; this one matches the actual submission and its 0.904 score.
 DEFAULT_CONSTANT_TEXT = (
-    "The self-states in this timeline fluctuate between adaptive and "
-    "maladaptive, this person finds it difficult to cope with their situation."
+    "The person is experiencing emotional distress and is finding it "
+    "difficult to cope with their situation."
 )
 
 

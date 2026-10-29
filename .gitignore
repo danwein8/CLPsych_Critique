@@ -3,6 +3,7 @@ outputs/
 clpsych2025/
 __pycache__/
 glm_claude.ps1
+CHECKPOINT.md
 local_claude.ps1
 body.json
 Modelfile
@@ -30,3 +31,6 @@ run_official_eval_sweep.ps1
 # evaluation logic and the BULUSI system code)
 CLPsych-2026/
 BULUSI-CLPsych/
+# Assembled evaluation set (generated summaries; transferred to the cluster
+# via scp, not git)
+eval_systems/
