@@ -1166,7 +1166,7 @@ def run_cross_validation(
         all_results.extend(tl_results)
 
     # Save consolidated results
-    cv_path = os.path.join(output_dir, f"task_b_cv_results_{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}.json")
+    cv_path = os.path.join(output_dir, f"task_b_cv_results_{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}.json")
     with open(cv_path, "w", encoding="utf-8") as f:
         json.dump(all_results, f, indent=2, ensure_ascii=False)
     print(f"\nSaved cross-validation results ({len(all_results)} summaries) to {cv_path}")
@@ -1256,7 +1256,7 @@ def main():
                 for s in all_spans
             ],
         }
-        a3_path = os.path.join(args.output_dir, f"task_a3_predictions_{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}.json")
+        a3_path = os.path.join(args.output_dir, f"task_a3_predictions_{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}.json")
         with open(a3_path, "w") as f:
             json.dump(a3_output, f, indent=2)
         print(f"Saved A.3 predictions to {a3_path}")
