@@ -11,29 +11,32 @@
 # not HOW.
 #
 # NEW-PROMPT MAPPING for the "ours" systems (user decision 2026-10-29; see
-# PROJECT_CONTEXT §0). The OLD-prompt copies in eval_systems/ are NOT used
-# and must NOT be overwritten:
-#   gold_structural   <- outputs/sweep_rerun/gold_structural.json        CS 0.8706
-#   gold_semantic     <- outputs/sweep_rerun/gold_semantic.json          CS 0.8666
-#   gold_hybrid-a0.50 <- eval_systems/gold_hybrid-a0.50.json             CS 0.8629
+# PROJECT_CONTEXT §0 — source-of-truth table). All 18 submission files now
+# live in eval_systems/ (consolidated 2026-10-29). The OLD-prompt copies
+# (eval_systems/{gold_structural,random_structural,gold_semantic}.json,
+# CS 0.876/0.880/0.860) are NOT used and must NOT be overwritten:
+#   gold_structural   <- eval_systems/gold_structural_newprompt.json   CS 0.8706
+#   gold_semantic     <- eval_systems/gold_semantic_newprompt.json     CS 0.8666
+#   gold_hybrid-a0.50 <- eval_systems/gold_hybrid-a0.50.json            CS 0.8629
 #                        (SHA-identical to outputs/sweep_rerun/gold_hybrid-a0.50.json)
-#   random_structural <- outputs/sweep_rerun_random/random_structural.json CS 0.8721
-#   gold_zeroshot     <- eval_systems/gold_zeroshot.json                CS 0.8743
+#   random_structural <- eval_systems/random_structural_newprompt.json CS 0.8721
+#   gold_zeroshot     <- eval_systems/gold_zeroshot.json               CS 0.8743
 #                        (2026-10-11 run = the NEW-prompt zero-shot, per
 #                         run_zeroshot_label_sources.py; the 0.858 May run
 #                         is old-prompt and NOT used)
-#   gold_rand-retr    <- eval_systems/gold_rand-retr.json               CS 0.8676
+#   gold_rand-retr    <- eval_systems/gold_rand-retr.json              CS 0.8676
 #                        (2026-09-17 run, same updated prompt)
-#   eaionflux         <- eval_systems/eaionflux.json                    CS 0.9033
+#   eaionflux         <- eval_systems/eaionflux.json                   CS 0.9033
 #                        (SHA-identical to the cluster llama3.3:70b rerun)
+#   Baselines (constant, gold-summary, empty, constant_timeline,
+#   gold_timeline) are SHA-verified copies of the
+#   clpsych2025/evaluation/official_run/ files (which stay in place for
+#   run.py / task31_eval.py).
 #
 # Files needed on the cluster (in addition to tracked pipelines/ + eval/):
 #   post_data.csv                (repo root; gitignored)
-#   eval_systems/                (all 13 systems; already scp'd)
-#   clpsych2025/evaluation/official_run/{baseline_constant,baseline_goldsummary,
-#       baseline_empty,constant-timeline,gold-timeline}.json   (already scp'd)
-#   outputs/sweep_rerun/{gold_structural,gold_semantic}.json   (scp if missing)
-#   outputs/sweep_rerun_random/random_structural.json          (scp if missing)
+#   eval_systems/                (the complete 21-file set incl. *_newprompt
+#                                 copies and the 5 baselines; scp -r)
 # The preflight below hard-fails and lists anything missing.
 #
 # Usage — run inside tmux, log to file:
@@ -81,17 +84,17 @@ SYSTEMS=(
   "ism=$REPO_ROOT/eval_systems/ism.json"
   "uottawa_s2=$REPO_ROOT/eval_systems/uottawa_s2.json"
   "eaionflux=$REPO_ROOT/eval_systems/eaionflux.json"
-  "gold_structural=$REPO_ROOT/outputs/sweep_rerun/gold_structural.json"
-  "gold_semantic=$REPO_ROOT/outputs/sweep_rerun/gold_semantic.json"
+  "gold_structural=$REPO_ROOT/eval_systems/gold_structural_newprompt.json"
+  "gold_semantic=$REPO_ROOT/eval_systems/gold_semantic_newprompt.json"
   "gold_hybrid-a0.50=$REPO_ROOT/eval_systems/gold_hybrid-a0.50.json"
-  "random_structural=$REPO_ROOT/outputs/sweep_rerun_random/random_structural.json"
+  "random_structural=$REPO_ROOT/eval_systems/random_structural_newprompt.json"
   "gold_zeroshot=$REPO_ROOT/eval_systems/gold_zeroshot.json"
   "gold_rand-retr=$REPO_ROOT/eval_systems/gold_rand-retr.json"
-  "constant=$REPO_ROOT/clpsych2025/evaluation/official_run/baseline_constant.json"
-  "gold-summary=$REPO_ROOT/clpsych2025/evaluation/official_run/baseline_goldsummary.json"
-  "empty=$REPO_ROOT/clpsych2025/evaluation/official_run/baseline_empty.json"
-  "constant_timeline=$REPO_ROOT/clpsych2025/evaluation/official_run/constant-timeline.json"
-  "gold_timeline=$REPO_ROOT/clpsych2025/evaluation/official_run/gold-timeline.json"
+  "constant=$REPO_ROOT/eval_systems/baseline_constant.json"
+  "gold-summary=$REPO_ROOT/eval_systems/baseline_goldsummary.json"
+  "empty=$REPO_ROOT/eval_systems/baseline_empty.json"
+  "constant_timeline=$REPO_ROOT/eval_systems/constant-timeline.json"
+  "gold_timeline=$REPO_ROOT/eval_systems/gold-timeline.json"
 )
 
 # ── Preflight: hard-fail if anything is missing (a partial sweep is useless) ──
@@ -132,4 +135,6 @@ awk -F, '$1=="eaionflux" {printf "  %-18s recall=%s precision=%s\n", $1, $2, $3}
 echo ""
 echo "Done. Copy back to the workstation:"
 echo "  scp -r '<cluster>:$OUT_DIR' outputs/"
-echo "Then run the LOCAL specificity analysis (see PROJECT_CONTEXT section 0)."
+echo "Specificity for these 18 systems was already run locally"
+echo "(outputs/specificity_full_20261029-133022/); merge it with these"
+echo "fidelity CSVs — see PROJECT_CONTEXT section 0."
