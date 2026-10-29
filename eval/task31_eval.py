@@ -319,6 +319,12 @@ class BERTScoreScorer:
             lang="en",
             rescale_with_baseline=self.rescale_with_baseline,
         )
+        # Newer transformers report a huge placeholder max length for this model,
+        # which bert_score passes to the tokenizer and overflows. 512 is the
+        # model's real positional limit.
+        tok = getattr(self.scorer, "_tokenizer", None)
+        if tok is not None and tok.model_max_length > 100_000:
+            tok.model_max_length = 512
 
     def score_sequence(self, gold_sents, pred_sents):
         if not pred_sents or not gold_sents:
